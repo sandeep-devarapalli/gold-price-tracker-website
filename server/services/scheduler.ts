@@ -220,6 +220,26 @@ async function wasScrapedToday(tableName: string, timestampColumn: string = 'tim
 }
 
 /**
+ * Check if news was scraped after a specific hour today (in IST)
+ * Useful for checking if evening scraper has run (after 7 PM = hour 19)
+ */
+async function wasNewsScrapedAfterHour(hour: number): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(
+      `SELECT COUNT(*) as count 
+       FROM gold_news 
+       WHERE DATE(created_at) = CURRENT_DATE
+       AND EXTRACT(HOUR FROM created_at AT TIME ZONE 'Asia/Kolkata') >= $1`,
+      [hour]
+    );
+    return parseInt(result.rows[0].count) > 0;
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Run any missed scrapers on startup
  * This catches up on any scrapers that should have run today but didn't because the server was down
  */
@@ -228,6 +248,7 @@ async function runMissedScrapers(): Promise<void> {
   
   const goldSchedule = process.env.SCRAPE_SCHEDULE || '0 11 * * *';
   const newsScheduleMorning = process.env.NEWS_SCRAPE_SCHEDULE_MORNING || '5 11 * * *';
+  const newsScheduleEvening = process.env.NEWS_SCRAPE_SCHEDULE_EVENING || '0 19 * * *';
   const bitcoinSchedule = process.env.BITCOIN_SCRAPE_SCHEDULE || '0 11 * * *';
   const marketSchedule = process.env.MARKET_SCRAPE_SCHEDULE || '15 11 * * *';
   
@@ -253,7 +274,16 @@ async function runMissedScrapers(): Promise<void> {
   if (hasScheduledTimePassed(newsScheduleMorning)) {
     const scraped = await wasScrapedToday('gold_news', 'created_at');
     if (!scraped) {
-      missedTasks.push({ name: 'News', task: performNewsScraping });
+      missedTasks.push({ name: 'News (Morning)', task: performNewsScraping });
+    }
+  }
+  
+  // Check News Evening (7 PM) - separate check
+  if (hasScheduledTimePassed(newsScheduleEvening)) {
+    // Check if evening scraper has run (news scraped after 7 PM = hour 19 in IST)
+    const eveningScraped = await wasNewsScrapedAfterHour(19);
+    if (!eveningScraped) {
+      missedTasks.push({ name: 'News (Evening)', task: performNewsScraping });
     }
   }
   
