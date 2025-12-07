@@ -1,9 +1,9 @@
 import Highcharts from 'highcharts';
 import HighchartsReact from 'highcharts-react-official';
-import { Target, TrendingUp, RefreshCw } from 'lucide-react';
+import { Target, TrendingUp } from 'lucide-react';
 import { useEffect, useState, useMemo } from 'react';
 import { formatPrice, type CurrencyUnit } from '../utils/priceConverter';
-import { fetchCombinedPredictions, generatePredictions, type PredictionWithActual } from '../services/api';
+import { fetchCombinedPredictions, type PredictionWithActual } from '../services/api';
 
 interface PredictionComparisonProps {
   currencyUnit: CurrencyUnit;
@@ -20,7 +20,6 @@ interface ComparisonDataPoint {
 export function PredictionComparison({ currencyUnit }: PredictionComparisonProps) {
   const [predictions, setPredictions] = useState<PredictionWithActual[]>([]);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const loadPredictions = async () => {
@@ -37,20 +36,6 @@ export function PredictionComparison({ currencyUnit }: PredictionComparisonProps
       setError(err instanceof Error ? err.message : 'Failed to load predictions');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleGenerate = async () => {
-    try {
-      setGenerating(true);
-      setError(null);
-      await generatePredictions(7);
-      await loadPredictions(); // Reload after generating
-    } catch (err) {
-      console.error('Failed to generate predictions:', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate predictions');
-    } finally {
-      setGenerating(false);
     }
   };
 
@@ -144,13 +129,7 @@ export function PredictionComparison({ currencyUnit }: PredictionComparisonProps
       <div className="bg-slate-800 rounded-2xl shadow-2xl p-6 border border-slate-700">
         <div className="text-center py-8 text-red-400">
           <div>Error: {error}</div>
-          <button
-            onClick={handleGenerate}
-            className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-            disabled={generating}
-          >
-            {generating ? 'Generating...' : 'Generate Predictions'}
-          </button>
+          <div className="text-slate-400 text-sm mt-2">Predictions will be generated automatically after news scraping</div>
         </div>
       </div>
     );
@@ -164,14 +143,6 @@ export function PredictionComparison({ currencyUnit }: PredictionComparisonProps
           <h2 className="text-white">Prediction vs Actual Performance</h2>
         </div>
         <div className="flex items-center space-x-3">
-          <button
-            onClick={handleGenerate}
-            className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-            disabled={generating}
-          >
-            <RefreshCw className={`h-4 w-4 ${generating ? 'animate-spin' : ''}`} />
-            <span>{generating ? 'Generating...' : 'Generate New'}</span>
-          </button>
           <div className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white px-4 py-2 rounded-lg">
             <div className="text-sm opacity-90">Avg Confidence</div>
             <div className="text-xl">{avgConfidence}%</div>
@@ -305,13 +276,15 @@ export function PredictionComparison({ currencyUnit }: PredictionComparisonProps
                     series.push({
                       name: 'Past Predictions',
                       data: pastPredictions,
-                      color: '#818cf8', // Light blue
+                      color: '#f97316', // Orange color (orange-500)
                       lineWidth: 2,
                       dashStyle: 'Dash',
                       marker: {
                         enabled: true,
                         radius: 4,
                         symbol: 'diamond',
+                        fillColor: '#f97316',
+                        lineColor: '#fff',
                       },
                       connectNulls: false,
                       zIndex: 2,
@@ -425,12 +398,7 @@ export function PredictionComparison({ currencyUnit }: PredictionComparisonProps
         <div className="text-center py-8 text-slate-400">
           <Target className="h-12 w-12 mx-auto mb-4 opacity-30" />
           <p>No predictions available yet</p>
-          <button
-            onClick={handleGenerate}
-            className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
-          >
-            Generate Predictions
-          </button>
+          <p className="text-sm mt-2 opacity-75">Predictions will be generated automatically after news scraping</p>
         </div>
       )}
     </div>
