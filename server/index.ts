@@ -63,11 +63,7 @@ app.get('/api/system/status', async (req, res) => {
     // Determine overall system health
     const allSystemsUp = dbStatus === 'ok' && schedulerStatus !== null;
     
-    // Check if scrapers have run today (IST timezone)
-    const now = new Date();
-    const todayIST = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-    todayIST.setHours(0, 0, 0, 0);
-    
+    // Check if scrapers have run today by querying database directly (more reliable)
     let scrapersToday = {
       gold_price: false,
       bitcoin: false,
@@ -75,21 +71,38 @@ app.get('/api/system/status', async (req, res) => {
       news: false
     };
     
-    if (schedulerStatus?.last_scraped) {
-      const checkIfToday = (dateStr: string | null): boolean => {
-        if (!dateStr) return false;
-        const scrapedDate = new Date(dateStr);
-        const scrapedDateIST = new Date(scrapedDate.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
-        scrapedDateIST.setHours(0, 0, 0, 0);
-        return scrapedDateIST.getTime() === todayIST.getTime();
-      };
-      
-      scrapersToday = {
-        gold_price: checkIfToday(schedulerStatus.last_scraped.gold_price),
-        bitcoin: checkIfToday(schedulerStatus.last_scraped.bitcoin),
-        markets: checkIfToday(schedulerStatus.last_scraped.markets),
-        news: checkIfToday(schedulerStatus.last_scraped.news)
-      };
+    try {
+      const dbClient = await pool.connect();
+      try {
+        // Check gold prices
+        const goldCheck = await dbClient.query(
+          `SELECT COUNT(*) as count FROM gold_prices WHERE DATE(timestamp) = CURRENT_DATE`
+        );
+        scrapersToday.gold_price = parseInt(goldCheck.rows[0].count) > 0;
+        
+        // Check bitcoin prices
+        const bitcoinCheck = await dbClient.query(
+          `SELECT COUNT(*) as count FROM bitcoin_prices WHERE DATE(timestamp) = CURRENT_DATE`
+        );
+        scrapersToday.bitcoin = parseInt(bitcoinCheck.rows[0].count) > 0;
+        
+        // Check market data
+        const marketsCheck = await dbClient.query(
+          `SELECT COUNT(*) as count FROM market_data WHERE DATE(timestamp) = CURRENT_DATE`
+        );
+        scrapersToday.markets = parseInt(marketsCheck.rows[0].count) > 0;
+        
+        // Check news (using created_at, not published_at, as news scraper sets created_at)
+        const newsCheck = await dbClient.query(
+          `SELECT COUNT(*) as count FROM gold_news WHERE DATE(created_at) = CURRENT_DATE`
+        );
+        scrapersToday.news = parseInt(newsCheck.rows[0].count) > 0;
+      } finally {
+        dbClient.release();
+      }
+    } catch (dbCheckError) {
+      console.error('Error checking scraper status from database:', dbCheckError);
+      // Keep default false values if check fails
     }
     
     res.json({
