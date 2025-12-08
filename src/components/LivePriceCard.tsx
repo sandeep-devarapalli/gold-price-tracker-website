@@ -172,12 +172,21 @@ export function LivePriceCard({ currentPrice, priceChange, percentChange, curren
               {loading ? '...' : formatPrice(displayLow, currencyUnit)}
             </div>
           </div>
-          <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
-            <div className="text-amber-100 text-sm">Volume</div>
-            <div className="text-xl mt-1 text-amber-50">
-              {loading ? '...' : volume ? formatVolume(volume) : 'N/A'}
+          {volume && (
+            <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
+              <div className="text-amber-100 text-sm">
+                {currencyUnit === 'INR/g' ? 'Volume (MCX)' : 'Volume'}
+              </div>
+              <div className="text-xl mt-1 text-amber-50">
+                {loading ? '...' : formatVolume(volume)}
+              </div>
+              {currencyUnit === 'INR/g' && (
+                <div className="text-xs text-amber-200/70 mt-1">
+                  Futures trading volume
+                </div>
+              )}
             </div>
-          </div>
+          )}
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
             <div className="text-amber-100 text-sm">Market Cap</div>
             <div className="text-xl mt-1 text-amber-50">

@@ -43,8 +43,8 @@ router.get('/latest', async (req: Request, res: Response) => {
       ? ((change / previousDayPrice.price_1g) * 100)
       : 0;
     
-    // Get volume from gold_prices table
-    const volume = latestPrice.trading_volume ? parseFloat(latestPrice.trading_volume) : null;
+    // Get volume from gold_prices table, or fallback to MCX futures volume
+    let volume = latestPrice.trading_volume ? parseFloat(latestPrice.trading_volume) : null;
     
     // Get latest market cap data from gold_market_cap table (one entry per region)
     const client = await pool.connect();
@@ -52,6 +52,26 @@ router.get('/latest', async (req: Request, res: Response) => {
     let globalMarketCap = null;
     
     try {
+      // If volume not available in gold_prices, use MCX futures volume as proxy
+      // MCX is the primary gold trading exchange in India, so futures volume is a good indicator
+      if (!volume && country === 'India') {
+        try {
+          const futuresResult = await client.query(`
+            SELECT trading_volume 
+            FROM gold_futures 
+            WHERE exchange = 'MCX' 
+            ORDER BY timestamp DESC 
+            LIMIT 1
+          `);
+          
+          if (futuresResult.rows.length > 0 && futuresResult.rows[0].trading_volume) {
+            volume = parseFloat(futuresResult.rows[0].trading_volume);
+          }
+        } catch (err) {
+          console.warn('Could not fetch MCX volume:', err);
+        }
+      }
+      
       const marketCapResult = await client.query(`
         SELECT DISTINCT ON (region) region, market_cap_usd 
         FROM gold_market_cap 

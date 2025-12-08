@@ -456,16 +456,37 @@ async function fetchMCXFromMoneyControl(): Promise<GoldFuturesData | null> {
       }
     }
     
-    // Extract volume
+    // Extract volume - MoneyControl shows it in format "Volume: 2,549.00" or "Volume 2,549.00"
     const volumePatterns = [
       /Volume\s*[:\s]*(\d{1,3}(?:,\d{2,3})*(?:\.\d{2})?)/i,
       /"volume":\s*(\d+(?:\.\d+)?)/i,
+      /Volume\s+(\d{1,3}(?:,\d{2,3})*(?:\.\d{2})?)/i, // "Volume 2,549.00"
     ];
     for (const pattern of volumePatterns) {
       const volumeMatch = pageText.match(pattern) || htmlText.match(pattern);
-      if (volumeMatch) {
+      if (volumeMatch && volumeMatch[1]) {
         tradingVolume = parseNumber(volumeMatch[1]);
-        break;
+        if (tradingVolume && tradingVolume > 0) {
+          break;
+        }
+      }
+    }
+    
+    // Also try to find volume in table cells or specific elements
+    if (!tradingVolume) {
+      const volumeElements = document.querySelectorAll('td, .volume, [data-volume]');
+      for (const el of Array.from(volumeElements)) {
+        const text = el.textContent || '';
+        if (text.includes('Volume') || el.hasAttribute('data-volume')) {
+          const volumeMatch = text.match(/(\d{1,3}(?:,\d{2,3})*(?:\.\d{2})?)/);
+          if (volumeMatch) {
+            const vol = parseNumber(volumeMatch[1]);
+            if (vol && vol > 0 && vol < 100000) { // Reasonable volume range
+              tradingVolume = vol;
+              break;
+            }
+          }
+        }
       }
     }
     

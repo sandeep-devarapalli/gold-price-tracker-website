@@ -12,7 +12,6 @@ import { BitcoinPrice } from './components/BitcoinPrice';
 import { SystemStatusWidget } from './components/SystemStatusWidget';
 import { FuturesWidget } from './components/FuturesWidget';
 import { MarketCapWidget } from './components/MarketCapWidget';
-import { GoldETFWidget } from './components/GoldETFWidget';
 import { fetchLatestPrice } from './services/api';
 
 export default function App() {
@@ -100,11 +99,6 @@ export default function App() {
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           <FuturesWidget />
           <MarketCapWidget />
-        </div>
-
-        {/* Gold ETFs Section */}
-        <div className="mb-8">
-          <GoldETFWidget />
         </div>
 
         {/* Bitcoin Price Section */}
