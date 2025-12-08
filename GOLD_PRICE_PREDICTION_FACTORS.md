@@ -99,7 +99,47 @@ This document tracks the factors, logic, and methodology used to predict gold pr
   - Weight: 10% (during/after monsoon)
   - Rationale: Good monsoon → Higher rural gold demand
 
-### 3. Historical Price Factors
+### 3. Gold Futures Factors
+
+#### A. MCX Gold Futures (India)
+- **Futures Price**
+  - Weight: 15%
+  - Rationale: MCX futures reflect Indian market expectations and sentiment
+  - Expected Impact: Futures price > Spot price (contango) = Bullish; Futures < Spot (backwardation) = Bearish
+- **Trading Volume**
+  - Weight: 10%
+  - Rationale: High volume indicates strong market interest and liquidity
+  - Expected Impact: Increasing volume = Bullish signal; Decreasing volume = Bearish signal
+- **Open Interest**
+  - Weight: 5%
+  - Rationale: Increasing open interest shows new positions being opened (bullish), decreasing shows positions closing (bearish)
+  - Expected Impact: Rising OI = Bullish; Falling OI = Bearish
+
+#### B. COMEX Gold Futures (Global)
+- **Futures Price**
+  - Weight: 10%
+  - Rationale: Global gold sentiment affects Indian prices through import costs
+  - Expected Impact: Rising COMEX prices support Indian gold prices
+- **Trading Volume**
+  - Weight: 5%
+  - Rationale: Global trading activity reflects worldwide gold demand
+- **Futures vs Spot Spread**
+  - Weight: 5%
+  - Rationale: Contango/backwardation indicates market expectations
+  - Expected Impact: Contango = Bullish expectations; Backwardation = Bearish expectations
+
+### 4. Trading Volume Factors
+
+#### A. MCX Gold Trading Volume
+- **Daily Trading Volume**
+  - Weight: 10%
+  - Rationale: High trading volume indicates active market participation and strong interest
+  - Expected Impact: Volume spikes often precede price movements
+- **Volume Trends**
+  - Weight: 5%
+  - Rationale: Increasing volume trend = growing interest; Decreasing = waning interest
+
+### 5. Historical Price Factors
 
 #### A. Price Trends
 - **7-Day Moving Average**
@@ -120,7 +160,23 @@ This document tracks the factors, logic, and methodology used to predict gold pr
   - Weight: 10%
   - Rationale: Acceleration/deceleration in price movement
 
-### 4. External Factors
+### 6. Market Cap Context
+
+#### A. India Gold Market Cap
+- **Total Market Value**
+  - Weight: Contextual (not directly weighted)
+  - Rationale: Provides context for market size and significance
+  - Update Frequency: Quarterly
+  - Sources: RBI reports, World Gold Council
+
+#### B. Global Gold Market Cap
+- **Total Market Value**
+  - Weight: Contextual (not directly weighted)
+  - Rationale: Global market context for comparison
+  - Update Frequency: Quarterly
+  - Sources: World Gold Council
+
+### 7. External Factors
 
 #### A. Global Factors
 - **International Gold Price (USD/oz)**
@@ -144,6 +200,46 @@ This document tracks the factors, logic, and methodology used to predict gold pr
 - **Economic Sanctions**
   - Weight: 10% (if present)
   - Rationale: Affects global trade
+
+### 4. Gold Futures Factors
+
+#### A. MCX Gold Futures (India)
+- **Futures Price**
+  - Weight: 15%
+  - Rationale: MCX futures reflect Indian market expectations and sentiment
+  - Expected Impact: Futures price > Spot price (contango) = Bullish; Futures < Spot (backwardation) = Bearish
+- **Trading Volume**
+  - Weight: 10%
+  - Rationale: High volume indicates strong market interest and liquidity
+  - Expected Impact: Increasing volume = Bullish signal; Decreasing volume = Bearish signal
+- **Open Interest**
+  - Weight: 5%
+  - Rationale: Increasing open interest shows new positions being opened (bullish), decreasing shows positions closing (bearish)
+  - Expected Impact: Rising OI = Bullish; Falling OI = Bearish
+
+#### B. COMEX Gold Futures (Global)
+- **Futures Price**
+  - Weight: 10%
+  - Rationale: Global gold sentiment affects Indian prices through import costs
+  - Expected Impact: Rising COMEX prices support Indian gold prices
+- **Trading Volume**
+  - Weight: 5%
+  - Rationale: Global trading activity reflects worldwide gold demand
+- **Futures vs Spot Spread**
+  - Weight: 5%
+  - Rationale: Contango/backwardation indicates market expectations
+  - Expected Impact: Contango = Bullish expectations; Backwardation = Bearish expectations
+
+### 5. Trading Volume Factors
+
+#### A. MCX Gold Trading Volume
+- **Daily Trading Volume**
+  - Weight: 10%
+  - Rationale: High trading volume indicates active market participation and strong interest
+  - Expected Impact: Volume spikes often precede price movements
+- **Volume Trends**
+  - Weight: 5%
+  - Rationale: Increasing volume trend = growing interest; Decreasing = waning interest
 
 ---
 

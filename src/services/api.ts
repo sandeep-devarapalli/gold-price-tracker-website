@@ -7,6 +7,9 @@ export interface LatestPrice {
   timestamp: string;
   change: number;
   percentChange: number;
+  trading_volume?: number | null;
+  india_market_cap_usd?: number | null;
+  global_market_cap_usd?: number | null;
 }
 
 export interface HistoricalPrice {
@@ -668,4 +671,134 @@ export async function fetchSystemStatus(): Promise<SystemStatusResponse> {
   }
   
   return response.json();
+}
+
+// Gold ETF API interfaces and functions
+export interface GoldETFData {
+  etf_name: string;
+  symbol: string;
+  exchange: 'NSE' | 'BSE';
+  nav_price: number;
+  change: number;
+  percent_change: number;
+  aum_crore?: number;
+  expense_ratio?: number;
+  timestamp: string;
+}
+
+export async function fetchLatestETFs(): Promise<{
+  success: boolean;
+  data?: GoldETFData[];
+  error?: string;
+}> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/etfs/latest`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch ETF data:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch ETF data'
+    };
+  }
+}
+
+// Gold Futures API interfaces and functions
+export interface GoldFuturesData {
+  exchange: 'MCX' | 'COMEX';
+  contract_symbol: string;
+  futures_price: number;
+  spot_price: number | null;
+  trading_volume: number | null;
+  open_interest: number | null;
+  change: number;
+  percent_change: number;
+  expiry_date: string | null;
+  timestamp: string;
+}
+
+export async function fetchLatestFutures(exchange?: 'MCX' | 'COMEX'): Promise<{
+  success: boolean;
+  data?: GoldFuturesData[];
+  error?: string;
+}> {
+  try {
+    const url = exchange 
+      ? `${API_BASE_URL}/futures/latest?exchange=${exchange}`
+      : `${API_BASE_URL}/futures/latest`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch futures data:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch futures data'
+    };
+  }
+}
+
+export async function fetchFuturesHistory(exchange?: 'MCX' | 'COMEX', days: number = 30): Promise<{
+  success: boolean;
+  data?: GoldFuturesData[];
+  error?: string;
+}> {
+  try {
+    const params = new URLSearchParams();
+    if (exchange) params.append('exchange', exchange);
+    params.append('days', days.toString());
+    const response = await fetch(`${API_BASE_URL}/futures/history?${params}`);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch futures history:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch futures history'
+    };
+  }
+}
+
+// Market Cap API interfaces and functions
+export interface MarketCapData {
+  region: 'India' | 'Global';
+  market_cap_usd: number;
+  gold_holdings_tonnes: number | null;
+  source: string;
+  report_date: string | null;
+  timestamp: string;
+}
+
+export async function fetchMarketCap(region?: 'India' | 'Global'): Promise<{
+  success: boolean;
+  data?: MarketCapData[];
+  error?: string;
+}> {
+  try {
+    const url = region
+      ? `${API_BASE_URL}/futures/market-cap?region=${region}`
+      : `${API_BASE_URL}/futures/market-cap`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Failed to fetch market cap data:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Failed to fetch market cap data'
+    };
+  }
 }

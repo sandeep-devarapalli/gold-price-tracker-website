@@ -3,10 +3,13 @@ import dotenv from 'dotenv';
 import { scrapeGoldPrice } from './scraper';
 import { insertPrice, isPriceScrapedToday, getLatestPrice } from './priceService';
 import { scrapeAllGoldNews, saveNewsArticles } from './newsScraper';
-import { scrapeUSMarkets, scrapeIndiaMarkets, scrapeCurrencyRates, saveMarketData } from './marketScraper';
+import { scrapeUSMarkets, scrapeIndiaMarkets, scrapeCurrencyRates, saveMarketData, scrapeMCXGoldVolume, saveGoldVolumeData } from './marketScraper';
 import { scrapeBitcoinPrice, saveBitcoinPrice } from './bitcoinScraper';
 import { generateGoldPricePredictions, savePredictions, getExistingPredictionDates } from './predictionService';
 import { checkAndTriggerAlerts } from './alertService';
+import { scrapeAllGoldFutures, saveGoldFuturesData } from './goldFuturesScraper';
+import { fetchIndiaGoldMarketCap, fetchGlobalGoldMarketCap, saveMarketCapData } from './marketCapService';
+import { scrapeGoldETFs, saveGoldETFs } from './goldETFScraper';
 import pool from '../db/connection';
 
 dotenv.config();
@@ -16,6 +19,9 @@ let newsTask: cron.ScheduledTask | null = null;
 let newsTaskEvening: cron.ScheduledTask | null = null;
 let marketTask: cron.ScheduledTask | null = null;
 let bitcoinTask: cron.ScheduledTask | null = null;
+let futuresTask: cron.ScheduledTask | null = null;
+let marketCapTask: cron.ScheduledTask | null = null;
+let etfTask: cron.ScheduledTask | null = null;
 
 /**
  * Perform gold price scraping task
@@ -183,6 +189,88 @@ async function performBitcoinScraping(): Promise<void> {
 }
 
 /**
+ * Perform gold futures scraping task
+ */
+async function performGoldFuturesScraping(): Promise<void> {
+  try {
+    console.log(`\n📊 [${new Date().toISOString()}] Starting scheduled gold futures scraping...`);
+    
+    const futuresData = await scrapeAllGoldFutures();
+    if (futuresData.length === 0) {
+      throw new Error('Failed to scrape gold futures data');
+    }
+    
+    await saveGoldFuturesData(futuresData);
+    
+    console.log(`✅ Gold futures scraping completed: ${futuresData.length} exchange(s) scraped`);
+    futuresData.forEach(f => {
+      console.log(`   ${f.exchange} ${f.symbol}: ₹${f.price.toFixed(2)} (Volume: ${f.volume || 'N/A'}, OI: ${f.open_interest || 'N/A'})`);
+    });
+  } catch (error) {
+    console.error(`❌ Scheduled gold futures scraping failed:`, error);
+  }
+}
+
+/**
+ * Perform market cap update task
+ */
+async function performMarketCapUpdate(): Promise<void> {
+  try {
+    console.log(`\n💰 [${new Date().toISOString()}] Starting scheduled gold market cap update...`);
+    
+    const [indiaCap, globalCap] = await Promise.all([
+      fetchIndiaGoldMarketCap(),
+      fetchGlobalGoldMarketCap()
+    ]);
+    
+    const marketCaps = [];
+    if (indiaCap) marketCaps.push(indiaCap);
+    if (globalCap) marketCaps.push(globalCap);
+    
+    if (marketCaps.length === 0) {
+      console.warn('⚠️ No market cap data was scraped or estimated.');
+      return;
+    }
+    
+    for (const cap of marketCaps) {
+      await saveMarketCapData(cap);
+    }
+    
+    console.log(`✅ Gold market cap update completed: ${marketCaps.length} entry/entries saved`);
+    marketCaps.forEach(mc => {
+      console.log(`   ${mc.type}: $${mc.value_usd.toFixed(2)} (₹${mc.value_inr ? mc.value_inr.toFixed(2) : 'N/A'})`);
+    });
+  } catch (error) {
+    console.error(`❌ Scheduled gold market cap update failed:`, error);
+  }
+}
+
+/**
+ * Perform Gold ETF scraping task
+ */
+async function performETFScraping(): Promise<void> {
+  try {
+    console.log(`\n📊 [${new Date().toISOString()}] Starting scheduled Gold ETF scraping...`);
+    
+    const etfs = await scrapeGoldETFs();
+    
+    if (etfs.length === 0) {
+      console.warn('⚠️ No Gold ETF data was scraped.');
+      return;
+    }
+    
+    await saveGoldETFs(etfs);
+    
+    console.log(`✅ Gold ETF scraping completed: ${etfs.length} ETF(s) scraped`);
+    etfs.forEach(etf => {
+      console.log(`   ${etf.etf_name} (${etf.symbol}): ₹${etf.nav_price.toFixed(2)} (Change: ${etf.change >= 0 ? '+' : ''}${etf.change.toFixed(2)}, ${etf.percent_change >= 0 ? '+' : ''}${etf.percent_change.toFixed(2)}%)`);
+    });
+  } catch (error) {
+    console.error(`❌ Scheduled Gold ETF scraping failed:`, error);
+  }
+}
+
+/**
  * Parse cron schedule to get hour and minute
  */
 function parseCronSchedule(schedule: string): { hour: number; minute: number } {
@@ -295,6 +383,15 @@ async function runMissedScrapers(): Promise<void> {
     }
   }
   
+  // Check Gold Futures (11:20 AM)
+  const futuresSchedule = process.env.FUTURES_SCRAPE_SCHEDULE || '20 11 * * *';
+  if (hasScheduledTimePassed(futuresSchedule)) {
+    const scraped = await wasScrapedToday('gold_futures', 'timestamp');
+    if (!scraped) {
+      missedTasks.push({ name: 'Gold Futures', task: performGoldFuturesScraping });
+    }
+  }
+  
   if (missedTasks.length === 0) {
     console.log('✅ No missed scrapers - all data is up to date for today');
     return;
@@ -379,6 +476,36 @@ export function initializeScheduler(): void {
     console.log(`📅 Bitcoin scheduler initialized: ${bitcoinSchedule} (11 AM daily)`);
   }
   
+  // Gold Futures: Daily at 11:20 AM IST (after market data)
+  const futuresSchedule = process.env.FUTURES_SCRAPE_SCHEDULE || '20 11 * * *';
+  if (cron.validate(futuresSchedule)) {
+    futuresTask = cron.schedule(futuresSchedule, performGoldFuturesScraping, {
+      scheduled: true,
+      timezone
+    });
+    console.log(`📅 Gold futures scheduler initialized: ${futuresSchedule} (11:20 AM daily)`);
+  }
+  
+  // Market Cap: Weekly check on Monday at 10 AM IST (for quarterly updates)
+  const marketCapSchedule = process.env.MARKET_CAP_SCHEDULE || '0 10 * * 1'; // Monday 10 AM
+  if (cron.validate(marketCapSchedule)) {
+    marketCapTask = cron.schedule(marketCapSchedule, performMarketCapUpdate, {
+      scheduled: true,
+      timezone
+    });
+    console.log(`📅 Market cap scheduler initialized: ${marketCapSchedule} (Monday 10 AM - quarterly check)`);
+  }
+  
+  // Gold ETFs: Daily at 11:25 AM IST (after market opens)
+  const etfSchedule = process.env.ETF_SCRAPE_SCHEDULE || '25 11 * * *'; // 11:25 AM daily
+  if (cron.validate(etfSchedule)) {
+    etfTask = cron.schedule(etfSchedule, performETFScraping, {
+      scheduled: true,
+      timezone
+    });
+    console.log(`📅 Gold ETF scheduler initialized: ${etfSchedule} (11:25 AM daily)`);
+  }
+  
   console.log('✅ All schedulers initialized and running');
   
   // Run catch-up for any missed scrapers (async, don't block startup)
@@ -410,6 +537,18 @@ export function stopScheduler(): void {
   if (bitcoinTask) {
     bitcoinTask.stop();
     bitcoinTask = null;
+  }
+  if (futuresTask) {
+    futuresTask.stop();
+    futuresTask = null;
+  }
+  if (marketCapTask) {
+    marketCapTask.stop();
+    marketCapTask = null;
+  }
+  if (etfTask) {
+    etfTask.stop();
+    etfTask = null;
   }
   console.log('⏹️ All schedulers stopped');
 }
@@ -476,6 +615,8 @@ export async function getSchedulerStatus(): Promise<{
     const newsScheduleEvening = process.env.NEWS_SCRAPE_SCHEDULE_EVENING || '0 19 * * *';
     const marketSchedule = process.env.MARKET_SCRAPE_SCHEDULE || '15 11 * * *';
     const bitcoinSchedule = process.env.BITCOIN_SCRAPE_SCHEDULE || '0 11 * * *';
+    const futuresSchedule = process.env.FUTURES_SCRAPE_SCHEDULE || '20 11 * * *';
+    const marketCapSchedule = process.env.MARKET_CAP_SCHEDULE || '0 10 * * 1';
     
     return {
       current_time: now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
@@ -510,6 +651,18 @@ export async function getSchedulerStatus(): Promise<{
           schedule: marketSchedule + ' (11:15 AM IST)',
           next_run: getNextRun(marketSchedule),
           is_active: marketTask !== null,
+        },
+        {
+          name: 'Gold Futures',
+          schedule: futuresSchedule + ' (11:20 AM IST)',
+          next_run: getNextRun(futuresSchedule),
+          is_active: futuresTask !== null,
+        },
+        {
+          name: 'Market Cap',
+          schedule: marketCapSchedule + ' (Monday 10 AM IST)',
+          next_run: getNextRun(marketCapSchedule),
+          is_active: marketCapTask !== null,
         },
       ],
       last_scraped: {

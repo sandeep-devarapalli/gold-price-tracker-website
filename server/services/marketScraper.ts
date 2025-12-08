@@ -331,3 +331,93 @@ export async function getLatestMarketData(marketType?: 'US' | 'India' | 'Currenc
   }
 }
 
+/**
+ * Scrape MCX Gold Trading Volume
+ * Extracts daily trading volume from MCX gold futures page
+ */
+export async function scrapeMCXGoldVolume(): Promise<number | null> {
+  console.log('📊 Scraping MCX Gold Trading Volume...');
+  
+  try {
+    // Try MCX gold futures page
+    const url = 'https://www.google.com/finance/quote/GOLD:MCX';
+    const response = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5'
+      },
+      timeout: 10000
+    });
+
+    const dom = new JSDOM(response.data);
+    const document = dom.window.document;
+    const pageText = document.body.textContent || '';
+    
+    // Look for volume patterns
+    const volumePatterns = [
+      /Volume[:\s]+([\d,]+(?:\.\d+)?)/i,
+      /Vol[:\s]+([\d,]+(?:\.\d+)?)/i,
+      /Trading\s+Volume[:\s]+([\d,]+(?:\.\d+)?)/i,
+      /Daily\s+Volume[:\s]+([\d,]+(?:\.\d+)?)/i
+    ];
+    
+    for (const pattern of volumePatterns) {
+      const match = pageText.match(pattern);
+      if (match && match[1]) {
+        const volume = parseNumber(match[1]);
+        if (volume && volume > 0) {
+          console.log(`✅ Found MCX Gold Volume: ${volume}`);
+          return volume;
+        }
+      }
+    }
+    
+    // Also check data attributes
+    const volumeElements = document.querySelectorAll('[data-volume], .volume');
+    for (const elem of volumeElements) {
+      const text = elem.textContent || '';
+      const volume = parseNumber(text);
+      if (volume && volume > 0) {
+        console.log(`✅ Found MCX Gold Volume (from element): ${volume}`);
+        return volume;
+      }
+    }
+    
+    console.warn('⚠️ Could not find MCX Gold Volume');
+    return null;
+  } catch (error) {
+    console.error('❌ Error scraping MCX Gold Volume:', error instanceof Error ? error.message : String(error));
+    return null;
+  }
+}
+
+/**
+ * Save gold trading volume to gold_prices table
+ */
+export async function saveGoldVolumeData(volume: number): Promise<void> {
+  const client = await pool.connect();
+  
+  try {
+    // Update the latest gold price record with volume
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const result = await client.query(
+      `UPDATE gold_prices 
+       SET trading_volume = $1
+       WHERE country = 'India' AND DATE(timestamp) = DATE($2)
+       RETURNING id`,
+      [volume, today]
+    );
+    
+    if (result.rows.length > 0) {
+      console.log(`✅ Updated gold price with trading volume: ${volume}`);
+    } else {
+      console.log(`⚠️ No gold price record found for today to update with volume`);
+    }
+  } finally {
+    client.release();
+  }
+}
+

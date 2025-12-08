@@ -8,6 +8,9 @@ export interface GoldPrice {
   timestamp: Date;
   source: string;
   created_at: Date;
+  trading_volume?: number | null;
+  india_market_cap_usd?: number | null;
+  global_market_cap_usd?: number | null;
 }
 
 export interface PriceStatistics {

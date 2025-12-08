@@ -13,6 +13,8 @@ import bitcoinRoutes from './routes/bitcoin';
 import predictionRoutes from './routes/predictions';
 import accuracyRoutes from './routes/accuracy';
 import alertRoutes from './routes/alerts';
+import futuresRoutes from './routes/futures';
+import etfRoutes from './routes/etfs';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -148,6 +150,8 @@ app.use('/api/bitcoin', bitcoinRoutes);
 app.use('/api/predictions', predictionRoutes);
 app.use('/api/accuracy', accuracyRoutes);
 app.use('/api/alerts', alertRoutes);
+app.use('/api/futures', futuresRoutes);
+app.use('/api/etfs', etfRoutes);
 
 // Start server
 app.listen(PORT, () => {

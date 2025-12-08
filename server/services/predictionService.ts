@@ -2,6 +2,7 @@ import OpenAI from 'openai';
 import pool from '../db/connection';
 import { getLatestMarketData } from './marketScraper';
 import { getLatestNews, getTodaysNews, NewsArticle } from './newsScraper';
+import { getLatestFuturesData } from './goldFuturesScraper';
 
 // Lazy initialization of OpenAI client
 let openai: OpenAI | null = null;
@@ -45,11 +46,12 @@ export async function generateGoldPricePredictions(
   try {
     console.log('🤖 Generating gold price predictions using OpenAI...');
     
-    // Gather current market data and TODAY'S news (for daily predictions)
-    const [usMarkets, indiaMarkets, currencyRates, newsArticles] = await Promise.all([
+    // Gather current market data, futures data, and TODAY'S news (for daily predictions)
+    const [usMarkets, indiaMarkets, currencyRates, futuresData, newsArticles] = await Promise.all([
       getLatestMarketData('US'),
       getLatestMarketData('India'),
       getLatestMarketData('Currency'),
+      getLatestFuturesData(), // Get MCX and COMEX futures data
       getTodaysNews(15) // Get today's news for predictions
     ]);
     
@@ -99,6 +101,16 @@ export async function generateGoldPricePredictions(
         value: m.value,
         change: m.change,
         percent_change: m.percent_change
+      })),
+      goldFutures: futuresData.map(f => ({
+        exchange: f.exchange,
+        contract_symbol: f.contract_symbol,
+        futures_price: f.futures_price,
+        spot_price: f.spot_price,
+        trading_volume: f.trading_volume,
+        open_interest: f.open_interest,
+        change: f.change,
+        percent_change: f.percent_change
       })),
       newsCount: newsArticles.length,
       newsSentiment: calculateNewsSentiment(newsArticles),
@@ -180,6 +192,7 @@ CURRENT MARKET DATA:
 - US Markets: ${JSON.stringify(context.usIndices)}
 - India Markets: ${JSON.stringify(context.indiaIndices)}
 - Currency Rates: ${JSON.stringify(context.currency)}
+- Gold Futures: ${context.goldFutures ? JSON.stringify(context.goldFutures) : 'No futures data available'}
 - News Articles Analyzed: ${context.newsCount}
 - Overall News Sentiment: ${context.newsSentiment}% positive
 
@@ -229,6 +242,12 @@ Generate predictions for the next ${days} days starting from tomorrow. Consider:
 7. **RBI Interest Rate (Repo Rate)**: Look for mentions of "RBI MPC", "Repo Rate", or "Interest Rates" in the news summaries.
    - Rate Hike = Bearish for Gold
    - Rate Cut / Pause = Bullish for Gold
+8. **Gold Futures Data** (Weight: 15-20% of prediction):
+   - **MCX Futures Price**: Compare with spot price. If futures > spot (contango), it indicates bullish sentiment. If futures < spot (backwardation), it may indicate bearish sentiment.
+   - **COMEX Futures Price**: Global gold sentiment. Rising COMEX prices typically support Indian gold prices.
+   - **Trading Volume**: High volume indicates strong market interest and can signal price direction. Increasing volume = bullish, decreasing = bearish.
+   - **Open Interest**: Increasing open interest = bullish (more positions being opened), decreasing = bearish (positions being closed).
+   - **Futures vs Spot Spread**: Analyze the spread between futures and spot prices for both MCX and COMEX to gauge market expectations.
 
 For article_summaries: Include the most important 5-8 summary points from the article analysis that are relevant for price predictions.
 

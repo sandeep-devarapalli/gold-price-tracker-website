@@ -9,6 +9,7 @@ import {
 } from '../services/priceService';
 import { scrapeGoldPrice } from '../services/scraper';
 import { insertPrice } from '../services/priceService';
+import pool from '../db/connection';
 
 const router = express.Router();
 
@@ -42,13 +43,43 @@ router.get('/latest', async (req: Request, res: Response) => {
       ? ((change / previousDayPrice.price_1g) * 100)
       : 0;
     
+    // Get volume from gold_prices table
+    const volume = latestPrice.trading_volume ? parseFloat(latestPrice.trading_volume) : null;
+    
+    // Get latest market cap data from gold_market_cap table (one entry per region)
+    const client = await pool.connect();
+    let indiaMarketCap = null;
+    let globalMarketCap = null;
+    
+    try {
+      const marketCapResult = await client.query(`
+        SELECT DISTINCT ON (region) region, market_cap_usd 
+        FROM gold_market_cap 
+        WHERE region IN ('India', 'Global')
+        ORDER BY region, timestamp DESC
+      `);
+      
+      for (const row of marketCapResult.rows) {
+        if (row.region === 'India') {
+          indiaMarketCap = parseFloat(row.market_cap_usd);
+        } else if (row.region === 'Global') {
+          globalMarketCap = parseFloat(row.market_cap_usd);
+        }
+      }
+    } finally {
+      client.release();
+    }
+    
     res.json({
       price_1g: latestPrice.price_1g,
       price_10g: latestPrice.price_10g,
       country: latestPrice.country,
       timestamp: latestPrice.timestamp,
       change: parseFloat(change.toFixed(2)),
-      percentChange: parseFloat(percentChange.toFixed(2))
+      percentChange: parseFloat(percentChange.toFixed(2)),
+      trading_volume: volume,
+      india_market_cap_usd: indiaMarketCap,
+      global_market_cap_usd: globalMarketCap
     });
   } catch (error) {
     console.error('Error fetching latest price:', error);

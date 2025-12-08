@@ -1,7 +1,7 @@
 import { TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { convertPrice, formatPrice, type CurrencyUnit } from '../utils/priceConverter';
-import { fetch24hStatistics } from '../services/api';
+import { fetch24hStatistics, fetchLatestPrice, fetchMarketCap } from '../services/api';
 
 interface LivePriceCardProps {
   currentPrice: number;
@@ -36,24 +36,70 @@ function formatDate(timestamp: Date): string {
   });
 }
 
+function formatVolume(volume: number): string {
+  if (volume >= 1000000) {
+    return `${(volume / 1000000).toFixed(2)}M`;
+  }
+  if (volume >= 1000) {
+    return `${(volume / 1000).toFixed(2)}K`;
+  }
+  return volume.toFixed(0);
+}
+
+function formatMarketCap(marketCap: number): string {
+  if (marketCap >= 1_000_000_000_000) {
+    return `$${(marketCap / 1_000_000_000_000).toFixed(2)}T`;
+  }
+  if (marketCap >= 1_000_000_000) {
+    return `$${(marketCap / 1_000_000_000).toFixed(2)}B`;
+  }
+  if (marketCap >= 1_000_000) {
+    return `$${(marketCap / 1_000_000).toFixed(2)}M`;
+  }
+  return `$${marketCap.toFixed(2)}`;
+}
+
 export function LivePriceCard({ currentPrice, priceChange, percentChange, currencyUnit, timestamp }: LivePriceCardProps) {
   const [stats24h, setStats24h] = useState<{ high: number; low: number } | null>(null);
+  const [volume, setVolume] = useState<number | null>(null);
+  const [marketCap, setMarketCap] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Parse the timestamp from API
   const priceDate = timestamp ? new Date(timestamp) : null;
 
   useEffect(() => {
-    const load24hStats = async () => {
+    const loadData = async () => {
       try {
         setLoading(true);
+        
+        // Fetch 24h stats
         const stats = await fetch24hStatistics();
         setStats24h({
           high: stats.high,
           low: stats.low
         });
+        
+        // Fetch latest price data (includes volume)
+        const priceData = await fetchLatestPrice();
+        if (priceData.trading_volume) {
+          setVolume(priceData.trading_volume);
+        }
+        
+        // Fetch market cap data (India market cap for INR/g, Global for USD/oz)
+        const marketCapData = await fetchMarketCap();
+        if (marketCapData.success && marketCapData.data) {
+          const indiaCap = marketCapData.data.find(c => c.region === 'India');
+          const globalCap = marketCapData.data.find(c => c.region === 'Global');
+          
+          if (currencyUnit === 'INR/g' && indiaCap) {
+            setMarketCap(indiaCap.market_cap_usd);
+          } else if (currencyUnit === 'USD/oz' && globalCap) {
+            setMarketCap(globalCap.market_cap_usd);
+          }
+        }
       } catch (error) {
-        console.error('Failed to fetch 24h statistics:', error);
+        console.error('Failed to fetch data:', error);
         // Use fallback values if API fails
         setStats24h({
           high: currentPrice,
@@ -64,12 +110,12 @@ export function LivePriceCard({ currentPrice, priceChange, percentChange, curren
       }
     };
 
-    load24hStats();
+    loadData();
     
-    // Refresh stats every 5 minutes
-    const interval = setInterval(load24hStats, 5 * 60 * 1000);
+    // Refresh data every 5 minutes
+    const interval = setInterval(loadData, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [currentPrice]);
+  }, [currentPrice, currencyUnit]);
 
   const isPositive = priceChange >= 0;
   
@@ -129,13 +175,13 @@ export function LivePriceCard({ currentPrice, priceChange, percentChange, curren
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
             <div className="text-amber-100 text-sm">Volume</div>
             <div className="text-xl mt-1 text-amber-50">
-              {currencyUnit === 'USD/oz' ? 'N/A' : 'N/A'}
+              {loading ? '...' : volume ? formatVolume(volume) : 'N/A'}
             </div>
           </div>
           <div className="bg-white/10 backdrop-blur-sm rounded-lg p-4">
             <div className="text-amber-100 text-sm">Market Cap</div>
             <div className="text-xl mt-1 text-amber-50">
-              {currencyUnit === 'USD/oz' ? 'N/A' : 'N/A'}
+              {loading ? '...' : marketCap ? formatMarketCap(marketCap) : 'N/A'}
             </div>
           </div>
         </div>
