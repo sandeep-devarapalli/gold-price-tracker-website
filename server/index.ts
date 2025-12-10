@@ -4,7 +4,7 @@ dotenv.config();
 
 import express from 'express';
 import cors from 'cors';
-import { initializeScheduler, getSchedulerStatus } from './services/scheduler';
+import { initializeScheduler, getSchedulerStatus, triggerCatchUpScrapers } from './services/scheduler';
 import pool from './db/connection';
 import priceRoutes from './routes/prices';
 import newsRoutes from './routes/news';
@@ -36,6 +36,18 @@ app.get('/api/scheduler/status', async (req, res) => {
   } catch (error) {
     console.error('Scheduler status error:', error);
     res.status(500).json({ success: false, error: 'Failed to get scheduler status', details: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Trigger catch-up scrapers manually
+app.post('/api/scheduler/catchup', async (req, res) => {
+  try {
+    console.log('🔄 Manual catch-up trigger requested...');
+    await triggerCatchUpScrapers();
+    res.json({ success: true, message: 'Catch-up scraping completed' });
+  } catch (error) {
+    console.error('Catch-up error:', error);
+    res.status(500).json({ success: false, error: 'Failed to run catch-up scrapers', details: error instanceof Error ? error.message : String(error) });
   }
 });
 

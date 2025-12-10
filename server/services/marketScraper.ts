@@ -238,12 +238,38 @@ export async function scrapeCurrencyRates(): Promise<MarketData[]> {
 
 /**
  * Save market data to database
+ * Calculates change and percent_change from previous day's value
  */
 export async function saveMarketData(markets: MarketData[]): Promise<void> {
   const client = await pool.connect();
   
   try {
     for (const market of markets) {
+      // Get previous day's value to calculate change
+      const previousDayQuery = await client.query(
+        `SELECT value FROM market_data 
+         WHERE market_type = $1 AND index_name = $2 
+         AND DATE(timestamp) < CURRENT_DATE
+         ORDER BY timestamp DESC
+         LIMIT 1`,
+        [market.market_type, market.index_name]
+      );
+      
+      let calculatedChange = 0;
+      let calculatedPercentChange = 0;
+      
+      if (previousDayQuery.rows.length > 0) {
+        const previousValue = parseFloat(previousDayQuery.rows[0].value);
+        calculatedChange = market.value - previousValue;
+        calculatedPercentChange = previousValue !== 0 ? (calculatedChange / previousValue) * 100 : 0;
+        console.log(`📊 Calculated change for ${market.index_name}: ${calculatedChange.toFixed(2)} (${calculatedPercentChange.toFixed(2)}%) from previous value ${previousValue}`);
+      } else {
+        // No previous data, use scraper values or 0
+        calculatedChange = market.change || 0;
+        calculatedPercentChange = market.percent_change || 0;
+        console.log(`ℹ️  No previous data for ${market.index_name}, using scraper values or 0`);
+      }
+      
       // Check if data already exists for today
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -255,23 +281,23 @@ export async function saveMarketData(markets: MarketData[]): Promise<void> {
       );
       
       if (existingCheck.rows.length > 0) {
-        // Update existing record
+        // Update existing record with calculated changes
         await client.query(
           `UPDATE market_data 
            SET value = $1, change = $2, percent_change = $3, timestamp = $4
            WHERE market_type = $5 AND index_name = $6 AND DATE(timestamp) = DATE($4)`,
           [
             market.value,
-            market.change,
-            market.percent_change,
+            calculatedChange,
+            calculatedPercentChange,
             market.timestamp,
             market.market_type,
             market.index_name
           ]
         );
-        console.log(`✅ Updated ${market.market_type} ${market.index_name}: ${market.value}`);
+        console.log(`✅ Updated ${market.market_type} ${market.index_name}: ${market.value} (Change: ${calculatedChange.toFixed(2)}, ${calculatedPercentChange.toFixed(2)}%)`);
       } else {
-        // Insert new record
+        // Insert new record with calculated changes
         await client.query(
           `INSERT INTO market_data (market_type, index_name, value, change, percent_change, timestamp)
            VALUES ($1, $2, $3, $4, $5, $6)`,
@@ -279,12 +305,12 @@ export async function saveMarketData(markets: MarketData[]): Promise<void> {
             market.market_type,
             market.index_name,
             market.value,
-            market.change,
-            market.percent_change,
+            calculatedChange,
+            calculatedPercentChange,
             market.timestamp
           ]
         );
-        console.log(`✅ Saved ${market.market_type} ${market.index_name}: ${market.value}`);
+        console.log(`✅ Saved ${market.market_type} ${market.index_name}: ${market.value} (Change: ${calculatedChange.toFixed(2)}, ${calculatedPercentChange.toFixed(2)}%)`);
       }
     }
   } finally {
@@ -294,6 +320,7 @@ export async function saveMarketData(markets: MarketData[]): Promise<void> {
 
 /**
  * Get latest market data from database
+ * Recalculates change and percent_change from previous day's value to ensure accuracy
  */
 export async function getLatestMarketData(marketType?: 'US' | 'India' | 'Currency'): Promise<MarketData[]> {
   const client = await pool.connect();
@@ -318,14 +345,41 @@ export async function getLatestMarketData(marketType?: 'US' | 'India' | 'Currenc
     
     const result = await client.query(query, params);
     
-    return result.rows.map(row => ({
-      market_type: row.market_type,
-      index_name: row.index_name,
-      value: parseFloat(row.value),
-      change: parseFloat(row.change),
-      percent_change: parseFloat(row.percent_change),
-      timestamp: row.timestamp,
-    }));
+    // Recalculate changes from previous day for each market
+    const marketsWithCalculatedChanges = await Promise.all(
+      result.rows.map(async (row) => {
+        // Get previous day's value
+        const previousDayQuery = await client.query(
+          `SELECT value FROM market_data 
+           WHERE market_type = $1 AND index_name = $2 
+           AND DATE(timestamp) < DATE($3)
+           ORDER BY timestamp DESC
+           LIMIT 1`,
+          [row.market_type, row.index_name, row.timestamp]
+        );
+        
+        let calculatedChange = parseFloat(row.change);
+        let calculatedPercentChange = parseFloat(row.percent_change);
+        const currentValue = parseFloat(row.value);
+        
+        if (previousDayQuery.rows.length > 0) {
+          const previousValue = parseFloat(previousDayQuery.rows[0].value);
+          calculatedChange = currentValue - previousValue;
+          calculatedPercentChange = previousValue !== 0 ? (calculatedChange / previousValue) * 100 : 0;
+        }
+        
+        return {
+          market_type: row.market_type,
+          index_name: row.index_name,
+          value: currentValue,
+          change: calculatedChange,
+          percent_change: calculatedPercentChange,
+          timestamp: row.timestamp,
+        };
+      })
+    );
+    
+    return marketsWithCalculatedChanges;
   } finally {
     client.release();
   }

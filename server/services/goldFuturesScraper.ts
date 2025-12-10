@@ -801,6 +801,31 @@ export async function saveGoldFuturesData(futures: GoldFuturesData[]): Promise<v
   
   try {
     for (const future of futures) {
+      // Get previous day's futures price to calculate change
+      const previousDayQuery = await client.query(
+        `SELECT futures_price FROM gold_futures 
+         WHERE exchange = $1 AND contract_symbol = $2 
+         AND DATE(timestamp) < DATE($3)
+         ORDER BY timestamp DESC
+         LIMIT 1`,
+        [future.exchange, future.contract_symbol, future.timestamp]
+      );
+      
+      let calculatedChange = 0;
+      let calculatedPercentChange = 0;
+      
+      if (previousDayQuery.rows.length > 0) {
+        const previousPrice = parseFloat(previousDayQuery.rows[0].futures_price);
+        calculatedChange = future.futures_price - previousPrice;
+        calculatedPercentChange = previousPrice !== 0 ? (calculatedChange / previousPrice) * 100 : 0;
+        console.log(`📊 Calculated change for ${future.exchange} ${future.contract_symbol}: ${calculatedChange.toFixed(2)} (${calculatedPercentChange.toFixed(2)}%) from previous price ${previousPrice}`);
+      } else {
+        // No previous data, use scraper values or 0
+        calculatedChange = future.change || 0;
+        calculatedPercentChange = future.percent_change || 0;
+        console.log(`ℹ️  No previous data for ${future.exchange} ${future.contract_symbol}, using scraper values or 0`);
+      }
+      
       // Check if data already exists for today
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -812,7 +837,7 @@ export async function saveGoldFuturesData(futures: GoldFuturesData[]): Promise<v
       );
       
       if (existingCheck.rows.length > 0) {
-        // Update existing record
+        // Update existing record with calculated changes
         await client.query(
           `UPDATE gold_futures 
            SET futures_price = $1, spot_price = $2, trading_volume = $3, open_interest = $4,
@@ -823,16 +848,16 @@ export async function saveGoldFuturesData(futures: GoldFuturesData[]): Promise<v
             future.spot_price || null,
             future.trading_volume || null,
             future.open_interest || null,
-            future.change,
-            future.percent_change,
+            calculatedChange,
+            calculatedPercentChange,
             future.timestamp,
             future.exchange,
             future.contract_symbol
           ]
         );
-        console.log(`✅ Updated ${future.exchange} ${future.contract_symbol}: ₹${future.futures_price}`);
+        console.log(`✅ Updated ${future.exchange} ${future.contract_symbol}: ₹${future.futures_price} (Change: ${calculatedChange.toFixed(2)}, ${calculatedPercentChange.toFixed(2)}%)`);
       } else {
-        // Insert new record
+        // Insert new record with calculated changes
         await client.query(
           `INSERT INTO gold_futures 
            (exchange, contract_symbol, futures_price, spot_price, trading_volume, open_interest,
@@ -845,13 +870,13 @@ export async function saveGoldFuturesData(futures: GoldFuturesData[]): Promise<v
             future.spot_price || null,
             future.trading_volume || null,
             future.open_interest || null,
-            future.change,
-            future.percent_change,
+            calculatedChange,
+            calculatedPercentChange,
             future.expiry_date || null,
             future.timestamp
           ]
         );
-        console.log(`✅ Saved ${future.exchange} ${future.contract_symbol}: ₹${future.futures_price}`);
+        console.log(`✅ Saved ${future.exchange} ${future.contract_symbol}: ₹${future.futures_price} (Change: ${calculatedChange.toFixed(2)}, ${calculatedPercentChange.toFixed(2)}%)`);
       }
     }
   } finally {
@@ -861,6 +886,7 @@ export async function saveGoldFuturesData(futures: GoldFuturesData[]): Promise<v
 
 /**
  * Get latest gold futures data from database
+ * Recalculates change and percent_change from previous day's value to ensure accuracy
  */
 export async function getLatestFuturesData(exchange?: 'MCX' | 'COMEX'): Promise<GoldFuturesData[]> {
   const client = await pool.connect();
@@ -884,18 +910,45 @@ export async function getLatestFuturesData(exchange?: 'MCX' | 'COMEX'): Promise<
     
     const result = await client.query(query, params);
     
-    return result.rows.map(row => ({
-      exchange: row.exchange,
-      contract_symbol: row.contract_symbol,
-      futures_price: parseFloat(row.futures_price),
-      spot_price: row.spot_price ? parseFloat(row.spot_price) : undefined,
-      trading_volume: row.trading_volume ? parseFloat(row.trading_volume) : undefined,
-      open_interest: row.open_interest ? parseFloat(row.open_interest) : undefined,
-      change: parseFloat(row.change),
-      percent_change: parseFloat(row.percent_change),
-      expiry_date: row.expiry_date ? new Date(row.expiry_date) : undefined,
-      timestamp: row.timestamp
-    }));
+    // Recalculate changes from previous day for each futures contract
+    const futuresWithCalculatedChanges = await Promise.all(
+      result.rows.map(async (row) => {
+        // Get previous day's futures price
+        const previousDayQuery = await client.query(
+          `SELECT futures_price FROM gold_futures 
+           WHERE exchange = $1 AND contract_symbol = $2 
+           AND DATE(timestamp) < DATE($3)
+           ORDER BY timestamp DESC
+           LIMIT 1`,
+          [row.exchange, row.contract_symbol, row.timestamp]
+        );
+        
+        let calculatedChange = parseFloat(row.change);
+        let calculatedPercentChange = parseFloat(row.percent_change);
+        const currentPrice = parseFloat(row.futures_price);
+        
+        if (previousDayQuery.rows.length > 0) {
+          const previousPrice = parseFloat(previousDayQuery.rows[0].futures_price);
+          calculatedChange = currentPrice - previousPrice;
+          calculatedPercentChange = previousPrice !== 0 ? (calculatedChange / previousPrice) * 100 : 0;
+        }
+        
+        return {
+          exchange: row.exchange,
+          contract_symbol: row.contract_symbol,
+          futures_price: currentPrice,
+          spot_price: row.spot_price ? parseFloat(row.spot_price) : undefined,
+          trading_volume: row.trading_volume ? parseFloat(row.trading_volume) : undefined,
+          open_interest: row.open_interest ? parseFloat(row.open_interest) : undefined,
+          change: calculatedChange,
+          percent_change: calculatedPercentChange,
+          expiry_date: row.expiry_date ? new Date(row.expiry_date) : undefined,
+          timestamp: row.timestamp
+        };
+      })
+    );
+    
+    return futuresWithCalculatedChanges;
   } finally {
     client.release();
   }

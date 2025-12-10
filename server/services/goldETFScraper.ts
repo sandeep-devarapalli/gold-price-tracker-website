@@ -228,12 +228,38 @@ export async function scrapeGoldETFs(): Promise<GoldETFData[]> {
 
 /**
  * Save Gold ETF data to database
+ * Calculates change and percent_change from previous day's value
  */
 export async function saveGoldETFs(etfs: GoldETFData[]): Promise<void> {
   const client = await pool.connect();
   
   try {
     for (const etf of etfs) {
+      // Get previous day's NAV to calculate change
+      const previousDayQuery = await client.query(
+        `SELECT nav_price FROM gold_etfs 
+         WHERE symbol = $1 
+         AND DATE(timestamp) < DATE($2)
+         ORDER BY timestamp DESC
+         LIMIT 1`,
+        [etf.symbol, etf.timestamp]
+      );
+      
+      let calculatedChange = 0;
+      let calculatedPercentChange = 0;
+      
+      if (previousDayQuery.rows.length > 0) {
+        const previousNAV = parseFloat(previousDayQuery.rows[0].nav_price);
+        calculatedChange = etf.nav_price - previousNAV;
+        calculatedPercentChange = previousNAV !== 0 ? (calculatedChange / previousNAV) * 100 : 0;
+        console.log(`📊 Calculated change for ${etf.symbol}: ${calculatedChange.toFixed(2)} (${calculatedPercentChange.toFixed(2)}%) from previous NAV ${previousNAV}`);
+      } else {
+        // No previous data, use scraper values or 0
+        calculatedChange = etf.change || 0;
+        calculatedPercentChange = etf.percent_change || 0;
+        console.log(`ℹ️  No previous data for ${etf.symbol}, using scraper values or 0`);
+      }
+      
       // Check if data already exists for today
       const today = new Date();
       today.setHours(0, 0, 0, 0);
@@ -245,7 +271,7 @@ export async function saveGoldETFs(etfs: GoldETFData[]): Promise<void> {
       );
       
       if (existingCheck.rows.length > 0) {
-        // Update existing record
+        // Update existing record with calculated changes
         await client.query(
           `UPDATE gold_etfs 
            SET nav_price = $1, change = $2, percent_change = $3, 
@@ -253,17 +279,17 @@ export async function saveGoldETFs(etfs: GoldETFData[]): Promise<void> {
            WHERE symbol = $7 AND DATE(timestamp) = DATE($6)`,
           [
             etf.nav_price,
-            etf.change,
-            etf.percent_change,
+            calculatedChange,
+            calculatedPercentChange,
             etf.aum_crore,
             etf.expense_ratio,
             etf.timestamp,
             etf.symbol
           ]
         );
-        console.log(`✅ Updated ${etf.etf_name}: ₹${etf.nav_price}`);
+        console.log(`✅ Updated ${etf.etf_name}: ₹${etf.nav_price} (Change: ${calculatedChange.toFixed(2)}, ${calculatedPercentChange.toFixed(2)}%)`);
       } else {
-        // Insert new record
+        // Insert new record with calculated changes
         await client.query(
           `INSERT INTO gold_etfs (etf_name, symbol, exchange, nav_price, change, percent_change, aum_crore, expense_ratio, timestamp)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
@@ -272,14 +298,14 @@ export async function saveGoldETFs(etfs: GoldETFData[]): Promise<void> {
             etf.symbol,
             etf.exchange,
             etf.nav_price,
-            etf.change,
-            etf.percent_change,
+            calculatedChange,
+            calculatedPercentChange,
             etf.aum_crore,
             etf.expense_ratio,
             etf.timestamp
           ]
         );
-        console.log(`✅ Saved ${etf.etf_name}: ₹${etf.nav_price}`);
+        console.log(`✅ Saved ${etf.etf_name}: ₹${etf.nav_price} (Change: ${calculatedChange.toFixed(2)}, ${calculatedPercentChange.toFixed(2)}%)`);
       }
     }
   } finally {
@@ -289,6 +315,7 @@ export async function saveGoldETFs(etfs: GoldETFData[]): Promise<void> {
 
 /**
  * Get latest Gold ETF data from database
+ * Recalculates change and percent_change from previous day's value to ensure accuracy
  */
 export async function getLatestGoldETFs(): Promise<GoldETFData[]> {
   const client = await pool.connect();
@@ -302,17 +329,44 @@ export async function getLatestGoldETFs(): Promise<GoldETFData[]> {
        ORDER BY symbol, timestamp DESC`
     );
     
-    return result.rows.map(row => ({
-      etf_name: row.etf_name,
-      symbol: row.symbol,
-      exchange: row.exchange,
-      nav_price: parseFloat(row.nav_price),
-      change: parseFloat(row.change),
-      percent_change: parseFloat(row.percent_change),
-      aum_crore: row.aum_crore ? parseFloat(row.aum_crore) : undefined,
-      expense_ratio: row.expense_ratio ? parseFloat(row.expense_ratio) : undefined,
-      timestamp: row.timestamp
-    }));
+    // Recalculate changes from previous day for each ETF
+    const etfsWithCalculatedChanges = await Promise.all(
+      result.rows.map(async (row) => {
+        // Get previous day's NAV
+        const previousDayQuery = await client.query(
+          `SELECT nav_price FROM gold_etfs 
+           WHERE symbol = $1 
+           AND DATE(timestamp) < DATE($2)
+           ORDER BY timestamp DESC
+           LIMIT 1`,
+          [row.symbol, row.timestamp]
+        );
+        
+        let calculatedChange = parseFloat(row.change);
+        let calculatedPercentChange = parseFloat(row.percent_change);
+        const currentNAV = parseFloat(row.nav_price);
+        
+        if (previousDayQuery.rows.length > 0) {
+          const previousNAV = parseFloat(previousDayQuery.rows[0].nav_price);
+          calculatedChange = currentNAV - previousNAV;
+          calculatedPercentChange = previousNAV !== 0 ? (calculatedChange / previousNAV) * 100 : 0;
+        }
+        
+        return {
+          etf_name: row.etf_name,
+          symbol: row.symbol,
+          exchange: row.exchange,
+          nav_price: currentNAV,
+          change: calculatedChange,
+          percent_change: calculatedPercentChange,
+          aum_crore: row.aum_crore ? parseFloat(row.aum_crore) : undefined,
+          expense_ratio: row.expense_ratio ? parseFloat(row.expense_ratio) : undefined,
+          timestamp: row.timestamp
+        };
+      })
+    );
+    
+    return etfsWithCalculatedChanges;
   } finally {
     client.release();
   }

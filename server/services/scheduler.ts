@@ -282,14 +282,27 @@ function parseCronSchedule(schedule: string): { hour: number; minute: number } {
 }
 
 /**
- * Check if a scheduled time has passed today
+ * Check if a scheduled time has passed today (in IST timezone)
+ * Schedules are in IST, so we need to compare in IST
  */
 function hasScheduledTimePassed(schedule: string): boolean {
   const { hour, minute } = parseCronSchedule(schedule);
+  
+  // Get current time
   const now = new Date();
-  const scheduledTime = new Date();
-  scheduledTime.setHours(hour, minute, 0, 0);
-  return now >= scheduledTime;
+  
+  // Convert to IST (UTC+5:30)
+  // JavaScript Date doesn't have built-in timezone support, so we calculate IST manually
+  const utcTime = now.getTime();
+  const istOffset = 5.5 * 60 * 60 * 1000; // IST is UTC+5:30 in milliseconds
+  const istTime = new Date(utcTime + istOffset);
+  
+  // Get IST hours and minutes
+  const nowHour = istTime.getUTCHours();
+  const nowMinute = istTime.getUTCMinutes();
+  
+  // Compare: if current IST time >= scheduled IST time, it has passed
+  return (nowHour > hour) || (nowHour === hour && nowMinute >= minute);
 }
 
 /**
@@ -392,6 +405,15 @@ async function runMissedScrapers(): Promise<void> {
     }
   }
   
+  // Check Gold ETFs (11:25 AM)
+  const etfSchedule = process.env.ETF_SCRAPE_SCHEDULE || '25 11 * * *';
+  if (hasScheduledTimePassed(etfSchedule)) {
+    const scraped = await wasScrapedToday('gold_etfs', 'timestamp');
+    if (!scraped) {
+      missedTasks.push({ name: 'Gold ETFs', task: performETFScraping });
+    }
+  }
+  
   if (missedTasks.length === 0) {
     console.log('✅ No missed scrapers - all data is up to date for today');
     return;
@@ -415,6 +437,13 @@ async function runMissedScrapers(): Promise<void> {
   }
   
   console.log('\n✅ Catch-up scraping completed');
+}
+
+/**
+ * Export catch-up function so it can be called manually or via API
+ */
+export async function triggerCatchUpScrapers(): Promise<void> {
+  return runMissedScrapers();
 }
 
 /**

@@ -299,11 +299,36 @@ export async function scrapeBitcoinPrice(): Promise<BitcoinPrice | null> {
 
 /**
  * Save Bitcoin price to database
+ * Calculates change_24h and percent_change_24h from previous day's value
  */
 export async function saveBitcoinPrice(price: BitcoinPrice): Promise<void> {
   const client = await pool.connect();
   
   try {
+    // Get previous day's price to calculate 24h change
+    const previousDayQuery = await client.query(
+      `SELECT price_usd FROM bitcoin_prices 
+       WHERE timestamp < $1
+       ORDER BY timestamp DESC
+       LIMIT 1`,
+      [price.timestamp]
+    );
+    
+    let calculatedChange24h = 0;
+    let calculatedPercentChange24h = 0;
+    
+    if (previousDayQuery.rows.length > 0) {
+      const previousPrice = parseFloat(previousDayQuery.rows[0].price_usd);
+      calculatedChange24h = price.price_usd - previousPrice;
+      calculatedPercentChange24h = previousPrice !== 0 ? (calculatedChange24h / previousPrice) * 100 : 0;
+      console.log(`📊 Calculated 24h change for Bitcoin: ${calculatedChange24h.toFixed(2)} (${calculatedPercentChange24h.toFixed(2)}%) from previous price $${previousPrice}`);
+    } else {
+      // No previous data, use scraper values or 0
+      calculatedChange24h = price.change_24h || 0;
+      calculatedPercentChange24h = price.percent_change_24h || 0;
+      console.log(`ℹ️  No previous Bitcoin data, using scraper values or 0`);
+    }
+    
     // Check if price already exists for this hour
     const hourStart = new Date(price.timestamp);
     hourStart.setMinutes(0, 0, 0);
@@ -315,7 +340,7 @@ export async function saveBitcoinPrice(price: BitcoinPrice): Promise<void> {
     );
     
     if (existingCheck.rows.length > 0) {
-      // Update existing record
+      // Update existing record with calculated changes
       await client.query(
         `UPDATE bitcoin_prices 
          SET price_usd = $1, price_inr = $2, change_24h = $3, percent_change_24h = $4, timestamp = $5
@@ -323,26 +348,26 @@ export async function saveBitcoinPrice(price: BitcoinPrice): Promise<void> {
         [
           price.price_usd,
           price.price_inr,
-          price.change_24h,
-          price.percent_change_24h,
+          calculatedChange24h,
+          calculatedPercentChange24h,
           price.timestamp
         ]
       );
-      console.log(`✅ Updated Bitcoin price: $${price.price_usd}`);
+      console.log(`✅ Updated Bitcoin price: $${price.price_usd} (Change: ${calculatedChange24h.toFixed(2)}, ${calculatedPercentChange24h.toFixed(2)}%)`);
     } else {
-      // Insert new record
+      // Insert new record with calculated changes
       await client.query(
         `INSERT INTO bitcoin_prices (price_usd, price_inr, change_24h, percent_change_24h, timestamp)
          VALUES ($1, $2, $3, $4, $5)`,
         [
           price.price_usd,
           price.price_inr,
-          price.change_24h,
-          price.percent_change_24h,
+          calculatedChange24h,
+          calculatedPercentChange24h,
           price.timestamp
         ]
       );
-      console.log(`✅ Saved Bitcoin price: $${price.price_usd}`);
+      console.log(`✅ Saved Bitcoin price: $${price.price_usd} (Change: ${calculatedChange24h.toFixed(2)}, ${calculatedPercentChange24h.toFixed(2)}%)`);
     }
   } finally {
     client.release();
@@ -351,6 +376,7 @@ export async function saveBitcoinPrice(price: BitcoinPrice): Promise<void> {
 
 /**
  * Get latest Bitcoin price from database
+ * Recalculates change_24h and percent_change_24h from previous day's value to ensure accuracy
  */
 export async function getLatestBitcoinPrice(): Promise<BitcoinPrice | null> {
   const client = await pool.connect();
@@ -368,12 +394,33 @@ export async function getLatestBitcoinPrice(): Promise<BitcoinPrice | null> {
     }
     
     const row = result.rows[0];
+    const currentPrice = parseFloat(row.price_usd);
+    const currentTimestamp = row.timestamp;
+    
+    // Recalculate changes from previous day
+    const previousDayQuery = await client.query(
+      `SELECT price_usd FROM bitcoin_prices 
+       WHERE timestamp < $1
+       ORDER BY timestamp DESC
+       LIMIT 1`,
+      [currentTimestamp]
+    );
+    
+    let calculatedChange24h = parseFloat(row.change_24h);
+    let calculatedPercentChange24h = parseFloat(row.percent_change_24h);
+    
+    if (previousDayQuery.rows.length > 0) {
+      const previousPrice = parseFloat(previousDayQuery.rows[0].price_usd);
+      calculatedChange24h = currentPrice - previousPrice;
+      calculatedPercentChange24h = previousPrice !== 0 ? (calculatedChange24h / previousPrice) * 100 : 0;
+    }
+    
     return {
-      price_usd: parseFloat(row.price_usd),
+      price_usd: currentPrice,
       price_inr: parseFloat(row.price_inr),
-      change_24h: parseFloat(row.change_24h),
-      percent_change_24h: parseFloat(row.percent_change_24h),
-      timestamp: row.timestamp,
+      change_24h: calculatedChange24h,
+      percent_change_24h: calculatedPercentChange24h,
+      timestamp: currentTimestamp,
     };
   } finally {
     client.release();
