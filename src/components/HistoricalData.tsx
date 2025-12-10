@@ -126,7 +126,7 @@ export function HistoricalData({ currencyUnit }: HistoricalDataProps) {
               ) : (
                 <ArrowDownRight className="h-4 w-4" />
               )}
-              <span>{item.change >= 0 ? '+' : ''}{item.percentChange}%</span>
+              <span>{item.change >= 0 ? '+' : ''}{item.percentChange.toFixed(2)}%</span>
             </div>
             </div>
           ))}
